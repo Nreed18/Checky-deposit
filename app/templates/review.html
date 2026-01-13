@@ -15,8 +15,16 @@
             </div>
             <div class="header-right">
                 <div class="total-display">
-                    <span class="total-label">Total Amount:</span>
+                    <span class="total-label">Reviewed Total:</span>
                     <span class="total-value" id="totalAmount">${{ "%.2f"|format(total_amount) }}</span>
+                    {% if batch.expected_amount %}
+                    <span class="expected-display">
+                        / Expected: <span id="expectedAmount">${{ "%.2f"|format(batch.expected_amount) }}</span>
+                    </span>
+                    {% endif %}
+                </div>
+                <div id="totalWarning" class="total-warning" style="display: none;">
+                    Totals do not match!
                 </div>
                 <button class="btn btn-primary" id="submitBtn" {% if not hubspot_configured %}disabled title="HubSpot API key not configured"{% endif %}>
                     Submit to HubSpot
@@ -171,6 +179,7 @@
     <script src="{{ url_for('static', filename='js/review.js') }}"></script>
     <script>
         const batchId = {{ batch.id }};
+        const expectedAmount = {{ batch.expected_amount|default(0, true) }};
     </script>
 </body>
 </html>

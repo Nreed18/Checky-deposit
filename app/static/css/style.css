@@ -665,6 +665,34 @@ header p {
     }
 }
 
+.expected-display {
+    color: #7f8c8d;
+    font-size: 0.9rem;
+    margin-left: 0.5rem;
+}
+
+.total-warning {
+    background-color: #e74c3c;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-weight: 500;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.total-mismatch {
+    color: #e74c3c !important;
+}
+
+.total-match {
+    color: #27ae60 !important;
+}
+
 @media (max-width: 768px) {
     .container {
         padding: 1rem;

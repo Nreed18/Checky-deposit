@@ -10,6 +10,7 @@ class Batch(db.Model):
     upload_date = db.Column(db.DateTime, default=datetime.utcnow)
     status = db.Column(db.String(20), default='processing')
     total_checks = db.Column(db.Integer, default=0)
+    expected_amount = db.Column(db.Numeric(12, 2), nullable=True)
     submitted_date = db.Column(db.DateTime, nullable=True)
     
     checks = db.relationship('Check', backref='batch', lazy=True, cascade='all, delete-orphan')
@@ -22,6 +23,7 @@ class Batch(db.Model):
             'upload_date': self.upload_date.isoformat() if self.upload_date else None,
             'status': self.status,
             'total_checks': self.total_checks,
+            'expected_amount': float(self.expected_amount) if self.expected_amount else None,
             'submitted_date': self.submitted_date.isoformat() if self.submitted_date else None
         }
 

@@ -3,17 +3,61 @@ import pytesseract
 from PIL import Image
 from datetime import datetime
 
+try:
+    from onnxtr.io import DocumentFile
+    from onnxtr.models import ocr_predictor
+    ONNXTR_AVAILABLE = True
+except ImportError:
+    ONNXTR_AVAILABLE = False
+
 class OCREngine:
-    def __init__(self):
+    def __init__(self, use_onnxtr=True):
         self.money_order_keywords = ['money order', 'postal money order', 'usps money order', 'western union']
+        self.use_onnxtr = use_onnxtr and ONNXTR_AVAILABLE
+        self._predictor = None
+    
+    def _get_predictor(self):
+        if self._predictor is None and self.use_onnxtr:
+            try:
+                self._predictor = ocr_predictor(pretrained=True)
+            except Exception as e:
+                print(f"Failed to initialize OnnxTR predictor: {e}")
+                self.use_onnxtr = False
+        return self._predictor
     
     def extract_text(self, image_path):
+        if self.use_onnxtr:
+            try:
+                return self._extract_with_onnxtr(image_path)
+            except Exception as e:
+                print(f"OnnxTR Error, falling back to Tesseract: {e}")
+        
+        return self._extract_with_tesseract(image_path)
+    
+    def _extract_with_onnxtr(self, image_path):
+        predictor = self._get_predictor()
+        if predictor is None:
+            raise Exception("OnnxTR predictor not available")
+        
+        doc = DocumentFile.from_images(image_path)
+        result = predictor(doc)
+        
+        text_lines = []
+        for page in result.pages:
+            for block in page.blocks:
+                for line in block.lines:
+                    line_text = ' '.join(word.value for word in line.words)
+                    text_lines.append(line_text)
+        
+        return '\n'.join(text_lines)
+    
+    def _extract_with_tesseract(self, image_path):
         try:
             image = Image.open(image_path)
             text = pytesseract.image_to_string(image)
             return text
         except Exception as e:
-            print(f"OCR Error: {e}")
+            print(f"Tesseract OCR Error: {e}")
             return ""
     
     def parse_check_data(self, raw_text, is_buckslip=False):

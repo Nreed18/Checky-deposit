@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.getElementById('submitBtn').addEventListener('click', submitBatch);
+    
+    updateTotalAmount();
 });
 
 async function handleFieldChange(e) {
@@ -56,7 +58,23 @@ function updateTotalAmount() {
         const val = parseFloat(field.value) || 0;
         total += val;
     });
-    document.getElementById('totalAmount').textContent = '$' + total.toFixed(2);
+    
+    const totalElement = document.getElementById('totalAmount');
+    totalElement.textContent = '$' + total.toFixed(2);
+    
+    const warningElement = document.getElementById('totalWarning');
+    if (expectedAmount > 0) {
+        const diff = Math.abs(total - expectedAmount);
+        if (diff > 0.01) {
+            warningElement.style.display = 'block';
+            totalElement.classList.add('total-mismatch');
+            totalElement.classList.remove('total-match');
+        } else {
+            warningElement.style.display = 'none';
+            totalElement.classList.add('total-match');
+            totalElement.classList.remove('total-mismatch');
+        }
+    }
 }
 
 function openLightbox(img) {
@@ -157,6 +175,21 @@ async function selectContact(contactId, contactName) {
 }
 
 async function submitBatch() {
+    if (expectedAmount > 0) {
+        let total = 0;
+        document.querySelectorAll('[data-field="amount"]').forEach(field => {
+            total += parseFloat(field.value) || 0;
+        });
+        
+        const diff = Math.abs(total - expectedAmount);
+        if (diff > 0.01) {
+            const confirmMsg = `Warning: The reviewed total ($${total.toFixed(2)}) does not match the expected amount ($${expectedAmount.toFixed(2)}).\n\nDifference: $${diff.toFixed(2)}\n\nAre you sure you want to submit?`;
+            if (!confirm(confirmMsg)) {
+                return;
+            }
+        }
+    }
+    
     const submitBtn = document.getElementById('submitBtn');
     submitBtn.disabled = true;
     submitBtn.textContent = 'Submitting...';

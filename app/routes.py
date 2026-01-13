@@ -28,6 +28,7 @@ def upload():
     
     file = request.files['pdf_file']
     appeal_code = request.form.get('appeal_code', '020')
+    expected_amount = request.form.get('expected_amount')
     
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
@@ -51,6 +52,11 @@ def upload():
     batch.filename = filename
     batch.appeal_code = appeal_code
     batch.status = 'processing'
+    if expected_amount:
+        try:
+            batch.expected_amount = float(expected_amount)
+        except ValueError:
+            pass
     db.session.add(batch)
     db.session.commit()
     
