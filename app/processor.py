@@ -176,7 +176,10 @@ class CheckProcessor:
                 check.page_number = check_page['page_num']
                 check.amount = check_data.get('amount')
                 check.check_date = check_data.get('check_date')
-                check.check_number = check_data.get('check_number')
+                # Check number: prefer check data, but use buckslip as fallback
+                # This helps if check OCR incorrectly picks up metadata
+                check.check_number = check_data.get('check_number') or (buckslip_data.get('check_number') if buckslip_data else None)
+                # Name and address: prefer buckslip data (donor info), fall back to check
                 check.name = buckslip_data.get('name') if buckslip_data else check_data.get('name')
                 check.address_line1 = buckslip_data.get('address_line1') if buckslip_data else check_data.get('address_line1')
                 check.address_line2 = buckslip_data.get('address_line2') if buckslip_data else check_data.get('address_line2')
