@@ -257,9 +257,29 @@ class OCREngine:
                           'way', 'place', 'pl', 'terrace', 'ter', 'po box', 'p.o. box',
                           'box', 'suite', 'ste', 'apartment', 'apt', 'unit']
 
+        # Organization keywords that indicate this is NOT a person's name
+        organization_keywords = ['family', 'radio', 'church', 'ministry', 'foundation',
+                                'organization', 'charity', 'inc', 'llc', 'corp', 'company',
+                                'association', 'society', 'trust', 'fund']
+
         name_found = False
         address_started = False
+        potential_names = []
 
+        # First pass: find all potential street addresses
+        address_lines = []
+        for i, line in enumerate(lines):
+            line_lower = line.lower()
+            # Skip metadata
+            if any(keyword in line_lower for keyword in metadata_exclusions):
+                continue
+            # Look for lines with street suffixes (potential addresses)
+            if re.search(r'\d+\s+[A-Za-z]', line):
+                has_street_suffix = any(suffix in line_lower for suffix in street_suffixes)
+                if has_street_suffix:
+                    address_lines.append(i)
+
+        # Second pass: find name (should be the line immediately before an address)
         for i, line in enumerate(lines):
             line_lower = line.lower()
 
@@ -269,7 +289,7 @@ class OCREngine:
 
             line_clean = re.sub(r'[^a-zA-Z\s\.,\-\']', '', line).strip()
 
-            # Name extraction - improved to avoid street addresses
+            # Name extraction - look for names adjacent to addresses
             if not name_found and len(line_clean) > 3:
                 words = line_clean.split()
                 if 2 <= len(words) <= 5:
@@ -280,11 +300,20 @@ class OCREngine:
                         # Exclude generic terms
                         generic_terms = ['dear', 'thank', 'please', 'enclosed']
                         has_generic = any(term in line_lower for term in generic_terms)
+                        # Exclude organization names
+                        has_org_keyword = any(org in line_lower for org in organization_keywords)
 
-                        if not has_street_suffix and not has_generic:
-                            data['name'] = line_clean
-                            name_found = True
-                            continue
+                        if not has_street_suffix and not has_generic and not has_org_keyword:
+                            # Check if next line is an address
+                            is_before_address = (i + 1) in address_lines
+                            if is_before_address:
+                                # This is likely a donor name (appears right before address)
+                                data['name'] = line_clean
+                                name_found = True
+                                continue
+                            else:
+                                # Store as potential name if we don't find a better one
+                                potential_names.append(line_clean)
 
             # Address extraction - look for street address with number
             if name_found and not address_started:
@@ -312,6 +341,10 @@ class OCREngine:
                 elif not re.search(r'page\s+\d+|of\s+\d+', line, re.IGNORECASE):
                     if not data['address_line2']:
                         data['address_line2'] = line
+
+        # Fallback: if no name found adjacent to address, use first potential name
+        if not name_found and potential_names:
+            data['name'] = potential_names[0]
 
         # Extract city/state/zip from anywhere in the text if not found yet
         if not data['city'] or not data['state'] or not data['zip_code']:
