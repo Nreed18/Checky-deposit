@@ -160,6 +160,13 @@ class OCREngine:
             'raw_ocr_text': raw_text
         }
 
+        # Debug logging - print first 800 chars of OCR text
+        print(f"\n{'='*60}")
+        print(f"PARSING {'BUCKSLIP' if is_buckslip else 'CHECK'}")
+        print(f"{'='*60}")
+        print(f"RAW TEXT:\n{raw_text[:800]}")
+        print(f"{'='*60}\n")
+
         text_lower = raw_text.lower()
         for keyword in self.money_order_keywords:
             if keyword in text_lower:
@@ -356,6 +363,16 @@ class OCREngine:
             state_match = re.search(r'\b([A-Z]{2})\s+\d{5}', raw_text)
             if state_match:
                 data['state'] = state_match.group(1)
+
+        # Debug logging - show extracted fields
+        print(f"EXTRACTED FIELDS:")
+        print(f"  Check Number: {data['check_number']}")
+        print(f"  Name: {data['name']}")
+        print(f"  Address Line 1: {data['address_line1']}")
+        print(f"  City: {data['city']}")
+        print(f"  State: {data['state']}")
+        print(f"  ZIP: {data['zip_code']}")
+        print(f"{'='*60}\n")
 
         return data
     
