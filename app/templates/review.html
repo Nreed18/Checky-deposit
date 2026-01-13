@@ -72,6 +72,30 @@
                             {% endif %}
                         </div>
 
+                        <div class="ocr-assist-panel">
+                            <div class="ocr-assist-header">
+                                <span>Click text below to fill fields →</span>
+                            </div>
+                            <div class="ocr-sections">
+                                {% if is_bank_batch and check.buckslip_ocr_text %}
+                                <div class="ocr-section">
+                                    <div class="ocr-section-label">Buckslip OCR:</div>
+                                    <div class="ocr-text-clickable" data-source="buckslip">
+                                        {{ check.buckslip_ocr_text }}
+                                    </div>
+                                </div>
+                                {% endif %}
+                                {% if check.check_ocr_text %}
+                                <div class="ocr-section">
+                                    <div class="ocr-section-label">Check OCR:</div>
+                                    <div class="ocr-text-clickable" data-source="check">
+                                        {{ check.check_ocr_text }}
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
                         <div class="check-data">
                             <div class="data-row">
                                 <div class="data-field">

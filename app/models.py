@@ -51,11 +51,13 @@ class Check(db.Model):
     
     is_money_order = db.Column(db.Boolean, default=False)
     needs_review = db.Column(db.Boolean, default=True)
-    
+
     hubspot_deal_id = db.Column(db.String(50), nullable=True)
-    
+
     raw_ocr_text = db.Column(db.Text, nullable=True)
-    
+    check_ocr_text = db.Column(db.Text, nullable=True)  # Separate check OCR
+    buckslip_ocr_text = db.Column(db.Text, nullable=True)  # Separate buckslip OCR
+
     check_image_path = db.Column(db.String(500), nullable=True)
     buckslip_image_path = db.Column(db.String(500), nullable=True)
     
