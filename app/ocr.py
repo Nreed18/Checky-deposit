@@ -159,13 +159,13 @@ class OCREngine:
             'is_money_order': False,
             'raw_ocr_text': raw_text
         }
-        
+
         text_lower = raw_text.lower()
         for keyword in self.money_order_keywords:
             if keyword in text_lower:
                 data['is_money_order'] = True
                 break
-        
+
         amount_patterns = [
             r'\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)',
             r'\*\*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\*\*',
@@ -180,7 +180,7 @@ class OCREngine:
                     break
                 except ValueError:
                     continue
-        
+
         date_patterns = [
             r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})',
             r'(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{2,4})',
@@ -199,48 +199,94 @@ class OCREngine:
                             day_int = int(groups[0])
                         else:
                             month_int, day_int = int(month_val), int(day_val)
-                        
+
                         year_int = int(year_val)
                         if year_int < 100:
                             year_int += 2000
-                        
+
                         data['check_date'] = datetime(year_int, month_int, day_int).date()
                         break
                 except (ValueError, KeyError):
                     continue
-        
-        check_num_patterns = [
-            r'(?:check\s*#?|no\.?|number)\s*:?\s*(\d{3,10})',
-            r'\b(\d{4,10})\b(?=.*(?:check|chk))',
-        ]
-        for pattern in check_num_patterns:
-            match = re.search(pattern, raw_text, re.IGNORECASE)
-            if match:
-                data['check_number'] = match.group(1)
-                break
-        
+
+        # Improved check number extraction - avoid metadata fields
+        # Metadata keywords that indicate this is NOT a check number
+        metadata_keywords = ['lockbox', 'transaction', 'batch', 'sequence', 'deposit date', 'site code']
+
+        if not is_buckslip:
+            # For checks, prioritize shorter check numbers (3-4 digits are most common)
+            # and avoid lines containing metadata keywords
+            check_num_patterns = [
+                # Check number explicitly labeled, but not preceded by metadata keywords
+                r'(?<!lockbox\s)(?<!transaction\s)(?<!batch\s)(?<!sequence\s)(?:check\s*#?|check\s+no\.?)\s*:?\s*(\d{3,4})\b',
+                # 3-4 digit number at start of line or after whitespace (typical check number position)
+                r'(?:^|\s)(\d{3,4})(?:\s|$)',
+            ]
+
+            for pattern in check_num_patterns:
+                matches = list(re.finditer(pattern, raw_text, re.IGNORECASE))
+                for match in matches:
+                    # Get surrounding context to verify it's not metadata
+                    start_pos = max(0, match.start() - 50)
+                    end_pos = min(len(raw_text), match.end() + 50)
+                    context = raw_text[start_pos:end_pos].lower()
+
+                    # Skip if metadata keywords are nearby
+                    if any(keyword in context for keyword in metadata_keywords):
+                        continue
+
+                    # This looks like a real check number
+                    potential_number = match.group(1)
+                    # Prefer 3-4 digit numbers
+                    if 3 <= len(potential_number) <= 4:
+                        data['check_number'] = potential_number
+                        break
+
+                if data['check_number']:
+                    break
+
         lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
-        
+
+        # Metadata keywords to exclude from name/address extraction
+        metadata_exclusions = ['batch', 'report', 'detail', 'lockbox', 'transaction',
+                               'deposit', 'sequence', 'site code', 'appeal']
+
         name_found = False
         address_started = False
-        
+
         for i, line in enumerate(lines):
+            line_lower = line.lower()
+
+            # Skip lines that contain metadata keywords
+            if any(keyword in line_lower for keyword in metadata_exclusions):
+                continue
+
             line_clean = re.sub(r'[^a-zA-Z\s\.,\-\']', '', line).strip()
-            
+
+            # Name extraction - improved to avoid metadata
             if not name_found and len(line_clean) > 3:
                 words = line_clean.split()
                 if 2 <= len(words) <= 5:
+                    # Check if all words start with uppercase (typical name format)
                     if all(word[0].isupper() for word in words if word):
-                        data['name'] = line_clean
-                        name_found = True
-                        continue
-            
+                        # Additional validation: avoid generic terms
+                        generic_terms = ['dear', 'thank', 'please', 'enclosed', 'family', 'radio']
+                        if not any(term in line_lower for term in generic_terms):
+                            data['name'] = line_clean
+                            name_found = True
+                            continue
+
+            # Address extraction - improved to avoid metadata
             if name_found and not address_started:
-                if re.search(r'\d+\s+\w+', line):
-                    data['address_line1'] = line
-                    address_started = True
-                    continue
-            
+                # Look for street address pattern (number followed by street name)
+                # Exclude patterns like "Lockbox #: 305112"
+                if re.search(r'\d+\s+[A-Z]', line) and not re.search(r'#\s*:', line):
+                    # Verify it looks like a street address
+                    if not re.search(r'(lockbox|transaction|batch|sequence)', line, re.IGNORECASE):
+                        data['address_line1'] = line
+                        address_started = True
+                        continue
+
             if address_started and not data['city']:
                 city_state_zip = re.match(r'([A-Za-z\s]+),?\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)', line)
                 if city_state_zip:
@@ -249,15 +295,15 @@ class OCREngine:
                     data['zip_code'] = city_state_zip.group(3)
                 elif not data['address_line2']:
                     data['address_line2'] = line
-        
+
         zip_match = re.search(r'\b(\d{5}(?:-\d{4})?)\b', raw_text)
         if zip_match and not data['zip_code']:
             data['zip_code'] = zip_match.group(1)
-        
+
         state_match = re.search(r'\b([A-Z]{2})\s+\d{5}', raw_text)
         if state_match and not data['state']:
             data['state'] = state_match.group(1)
-        
+
         return data
     
     def detect_image_type(self, raw_text):
