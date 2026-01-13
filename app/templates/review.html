@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review - {{ batch.filename }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container-wide">
+        <header class="review-header">
+            <div class="header-left">
+                <h1>Review Batch</h1>
+                <p>{{ batch.filename }} | Appeal: {{ batch.appeal_code }}</p>
+            </div>
+            <div class="header-right">
+                <div class="total-display">
+                    <span class="total-label">Total Amount:</span>
+                    <span class="total-value" id="totalAmount">${{ "%.2f"|format(total_amount) }}</span>
+                </div>
+                <button class="btn btn-primary" id="submitBtn" {% if not hubspot_configured %}disabled title="HubSpot API key not configured"{% endif %}>
+                    Submit to HubSpot
+                </button>
+                <a href="/" class="btn btn-secondary">Back to Upload</a>
+            </div>
+        </header>
+
+        <main>
+            {% if not hubspot_configured %}
+            <div class="warning-banner">
+                HubSpot API key is not configured. You can review and edit checks, but cannot submit to HubSpot.
+            </div>
+            {% endif %}
+
+            <div class="checks-container">
+                {% for check in checks %}
+                <div class="check-card {% if check.is_money_order %}check-money-order{% elif check.needs_review %}check-needs-review{% elif check.match_confidence >= 0.8 %}check-matched{% endif %}" data-check-id="{{ check.id }}">
+                    <div class="check-header">
+                        <span class="check-number">Check #{{ check.page_number }}</span>
+                        {% if check.is_money_order %}
+                        <span class="badge badge-danger">Money Order</span>
+                        {% elif check.needs_review %}
+                        <span class="badge badge-warning">Needs Review</span>
+                        {% elif check.match_confidence >= 0.8 %}
+                        <span class="badge badge-success">Matched ({{ (check.match_confidence * 100)|int }}%)</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="check-content">
+                        <div class="check-images">
+                            {% if is_bank_batch and check.buckslip_image_path %}
+                            <div class="image-container">
+                                <label>Buck Slip (Donor Info)</label>
+                                <img src="/images/batch_{{ batch.id }}/{{ check.buckslip_image_path.split('/')[-1] }}" 
+                                     alt="Buck Slip" class="check-image" onclick="openLightbox(this)">
+                            </div>
+                            {% endif %}
+                            {% if check.check_image_path %}
+                            <div class="image-container">
+                                <label>Check Front</label>
+                                <img src="/images/batch_{{ batch.id }}/{{ check.check_image_path.split('/')[-1] }}" 
+                                     alt="Check" class="check-image" onclick="openLightbox(this)">
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="check-data">
+                            <div class="data-row">
+                                <div class="data-field">
+                                    <label>Amount</label>
+                                    <input type="text" class="editable-field" data-field="amount" 
+                                           value="{{ '%.2f'|format(check.amount) if check.amount else '' }}"
+                                           placeholder="0.00">
+                                </div>
+                                <div class="data-field">
+                                    <label>Date</label>
+                                    <input type="date" class="editable-field" data-field="check_date" 
+                                           value="{{ check.check_date.isoformat() if check.check_date else '' }}">
+                                </div>
+                                <div class="data-field">
+                                    <label>Check #</label>
+                                    <input type="text" class="editable-field" data-field="check_number" 
+                                           value="{{ check.check_number or '' }}" placeholder="Check number">
+                                </div>
+                            </div>
+
+                            <div class="data-row">
+                                <div class="data-field data-field-wide">
+                                    <label>Name</label>
+                                    <input type="text" class="editable-field" data-field="name" 
+                                           value="{{ check.name or '' }}" placeholder="Donor name">
+                                </div>
+                            </div>
+
+                            <div class="data-row">
+                                <div class="data-field data-field-wide">
+                                    <label>Address Line 1</label>
+                                    <input type="text" class="editable-field" data-field="address_line1" 
+                                           value="{{ check.address_line1 or '' }}" placeholder="Street address">
+                                </div>
+                            </div>
+
+                            <div class="data-row">
+                                <div class="data-field data-field-wide">
+                                    <label>Address Line 2</label>
+                                    <input type="text" class="editable-field" data-field="address_line2" 
+                                           value="{{ check.address_line2 or '' }}" placeholder="Apt, Suite, etc.">
+                                </div>
+                            </div>
+
+                            <div class="data-row">
+                                <div class="data-field">
+                                    <label>City</label>
+                                    <input type="text" class="editable-field" data-field="city" 
+                                           value="{{ check.city or '' }}" placeholder="City">
+                                </div>
+                                <div class="data-field data-field-small">
+                                    <label>State</label>
+                                    <input type="text" class="editable-field" data-field="state" 
+                                           value="{{ check.state or '' }}" placeholder="ST" maxlength="2">
+                                </div>
+                                <div class="data-field">
+                                    <label>ZIP</label>
+                                    <input type="text" class="editable-field" data-field="zip_code" 
+                                           value="{{ check.zip_code or '' }}" placeholder="ZIP Code">
+                                </div>
+                            </div>
+
+                            <div class="data-row hubspot-row">
+                                <div class="data-field data-field-wide">
+                                    <label>HubSpot Contact</label>
+                                    <div class="hubspot-contact-display">
+                                        <span class="contact-name">{{ check.hubspot_contact_name or 'Not matched' }}</span>
+                                        <button class="btn btn-small btn-secondary search-contact-btn" 
+                                                data-check-id="{{ check.id }}"
+                                                {% if not hubspot_configured %}disabled{% endif %}>
+                                            Search
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </main>
+
+        <div id="lightbox" class="lightbox" onclick="closeLightbox()">
+            <img src="" alt="Full size image" id="lightboxImage">
+        </div>
+
+        <div id="contactSearchModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Search HubSpot Contacts</h2>
+                    <button class="modal-close" onclick="closeContactModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="search-form">
+                        <input type="text" id="contactSearchName" placeholder="Name">
+                        <input type="text" id="contactSearchZip" placeholder="ZIP Code">
+                        <button class="btn btn-primary" onclick="searchContacts()">Search</button>
+                    </div>
+                    <div id="contactResults" class="contact-results"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/review.js') }}"></script>
+    <script>
+        const batchId = {{ batch.id }};
+    </script>
+</body>
+</html>

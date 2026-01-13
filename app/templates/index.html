@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check Processor - Upload</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Check Processor</h1>
+            <p>Upload a PDF batch of checks for automated processing</p>
+        </header>
+
+        <main>
+            <div class="upload-section">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="appeal_code">Appeal Type</label>
+                        <select id="appeal_code" name="appeal_code" required>
+                            {% for code, name in appeal_codes.items() %}
+                            <option value="{{ code }}">{{ code }} - {{ name }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="help-text">
+                            <strong>035 - Bank Check:</strong> Includes buck slips with donor info<br>
+                            <strong>020 - General Mail:</strong> Check images only
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="pdf_file">PDF File</label>
+                        <div class="file-upload-wrapper">
+                            <input type="file" id="pdf_file" name="pdf_file" accept=".pdf" required>
+                            <div class="file-upload-display">
+                                <span class="file-icon">+</span>
+                                <span class="file-text">Click to select or drag PDF file here</span>
+                                <span class="file-name"></span>
+                            </div>
+                        </div>
+                        <small class="help-text">Maximum file size: 100MB</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="uploadBtn">
+                        <span class="btn-text">Upload and Process</span>
+                        <span class="btn-loading" style="display: none;">Processing...</span>
+                    </button>
+                </form>
+
+                <div id="uploadError" class="error-message" style="display: none;"></div>
+            </div>
+
+            {% if batches %}
+            <div class="recent-batches">
+                <h2>Recent Batches</h2>
+                <table class="batches-table">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Appeal</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>Checks</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for batch in batches %}
+                        <tr>
+                            <td>{{ batch.filename }}</td>
+                            <td>{{ batch.appeal_code }}</td>
+                            <td>{{ batch.upload_date.strftime('%m/%d/%Y %H:%M') }}</td>
+                            <td>
+                                <span class="status-badge status-{{ batch.status }}">
+                                    {{ batch.status }}
+                                </span>
+                            </td>
+                            <td>{{ batch.total_checks }}</td>
+                            <td>
+                                {% if batch.status == 'processing' %}
+                                <a href="/processing/{{ batch.id }}" class="btn btn-small">View Progress</a>
+                                {% elif batch.status == 'ready' %}
+                                <a href="/review/{{ batch.id }}" class="btn btn-small btn-success">Review</a>
+                                {% elif batch.status == 'submitted' %}
+                                <span class="text-muted">Submitted</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+</body>
+</html>

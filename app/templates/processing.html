@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processing - {{ batch.filename }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Processing Batch</h1>
+            <p>{{ batch.filename }}</p>
+        </header>
+
+        <main>
+            <div class="processing-card">
+                <div class="processing-status" id="statusMessage">
+                    Initializing...
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text" id="progressText">0%</div>
+                </div>
+
+                <div class="processing-stats">
+                    <div class="stat">
+                        <span class="stat-label">Current Page</span>
+                        <span class="stat-value" id="currentPage">-</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Total Pages</span>
+                        <span class="stat-value" id="totalPages">-</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Checks Found</span>
+                        <span class="stat-value" id="checksFound">0</span>
+                    </div>
+                </div>
+
+                <div id="completeActions" style="display: none;">
+                    <a href="/review/{{ batch.id }}" class="btn btn-primary btn-large">
+                        Review Checks
+                    </a>
+                </div>
+
+                <div id="errorMessage" class="error-message" style="display: none;"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const batchId = {{ batch.id }};
+        const eventSource = new EventSource(`/api/status/${batchId}`);
+        
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            document.getElementById('statusMessage').textContent = data.message || data.status;
+            
+            if (data.total_pages > 0) {
+                const progress = Math.round((data.current_page / data.total_pages) * 100);
+                document.getElementById('progressFill').style.width = progress + '%';
+                document.getElementById('progressText').textContent = progress + '%';
+                document.getElementById('currentPage').textContent = data.current_page;
+                document.getElementById('totalPages').textContent = data.total_pages;
+            }
+            
+            document.getElementById('checksFound').textContent = data.checks_found || 0;
+            
+            if (data.status === 'complete') {
+                document.getElementById('progressFill').style.width = '100%';
+                document.getElementById('progressText').textContent = '100%';
+                document.getElementById('completeActions').style.display = 'block';
+                eventSource.close();
+            } else if (data.status === 'error') {
+                document.getElementById('errorMessage').textContent = 'Error: ' + data.message;
+                document.getElementById('errorMessage').style.display = 'block';
+                eventSource.close();
+            }
+        };
+        
+        eventSource.onerror = function() {
+            setTimeout(() => {
+                window.location.href = `/review/${batchId}`;
+            }, 2000);
+        };
+    </script>
+</body>
+</html>
