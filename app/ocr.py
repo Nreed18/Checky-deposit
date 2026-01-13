@@ -265,9 +265,10 @@ class OCREngine:
                           'box', 'suite', 'ste', 'apartment', 'apt', 'unit']
 
         # Organization keywords that indicate this is NOT a person's name
-        # NOTE: 'trust' and 'fund' are NOT included because they can be legitimate donor names
-        # (e.g., "John Smith Family Trust" or "Smith Foundation Fund")
-        organization_keywords = ['family', 'radio', 'church', 'ministry', 'foundation',
+        # NOTE: 'trust', 'fund', 'family', 'radio' are NOT included because:
+        # - 'trust'/'fund' can be legitimate donor names (e.g., "John Smith Family Trust")
+        # - 'family'/'radio' are handled separately as the phrase "Family Radio" (recipient org)
+        organization_keywords = ['church', 'ministry', 'foundation',
                                 'organization', 'charity', 'inc', 'llc', 'corp', 'company',
                                 'association', 'society', 'bank', 'fargo', 'wells', 'union', 'credit']
 
@@ -287,24 +288,38 @@ class OCREngine:
             if not name_found and len(line_clean) > 3:
                 words = line_clean.split()
 
-                # Check if line contains organization keywords - extract name BEFORE them
+                # First, check for specific recipient organization "Family Radio" (always filter)
                 # Example: "Carl Augustine Family Radio" -> extract "Carl Augustine"
                 potential_name = None
-                words_lower = line_lower.split()
-                org_found_at = -1
-                for idx, word in enumerate(words_lower):
-                    if word in organization_keywords:
-                        org_found_at = idx
-                        break
+                if 'family radio' in line_lower:
+                    # Find where "family radio" starts and extract text before it
+                    family_radio_match = re.search(r'\bfamily\s+radio\b', line_lower)
+                    if family_radio_match:
+                        # Get the text before "family radio"
+                        text_before = line[:family_radio_match.start()].strip()
+                        text_before_clean = re.sub(r'[^a-zA-Z\s\.,\-\']', '', text_before).strip()
+                        if text_before_clean:
+                            name_words = text_before_clean.split()
+                            if 2 <= len(name_words) <= 5:
+                                potential_name = text_before_clean
 
-                if org_found_at > 0:
-                    # Extract words before organization keyword
-                    name_words = words[:org_found_at]
-                    if 2 <= len(name_words) <= 5:
-                        potential_name = ' '.join(name_words)
-                elif 2 <= len(words) <= 5:
-                    # No org keywords found, use whole line
-                    potential_name = line_clean
+                # If no "Family Radio" found, check for other organization keywords
+                if not potential_name:
+                    words_lower = line_lower.split()
+                    org_found_at = -1
+                    for idx, word in enumerate(words_lower):
+                        if word in organization_keywords:
+                            org_found_at = idx
+                            break
+
+                    if org_found_at > 0:
+                        # Extract words before organization keyword
+                        name_words = words[:org_found_at]
+                        if 2 <= len(name_words) <= 5:
+                            potential_name = ' '.join(name_words)
+                    elif 2 <= len(words) <= 5:
+                        # No org keywords found, use whole line
+                        potential_name = line_clean
 
                 if potential_name:
                     # Check if all words start with uppercase (typical name format)
