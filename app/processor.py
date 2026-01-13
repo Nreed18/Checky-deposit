@@ -100,55 +100,90 @@ class CheckProcessor:
                     db.session.commit()
     
     def _process_bank_batch(self, batch_id, images, image_dir):
-        page_num = 0
-        check_count = 0
+        update_status(batch_id, {
+            'message': 'Classifying pages...'
+        })
         
-        while page_num < len(images):
+        classified_pages = []
+        for page_num, image in enumerate(images):
             update_status(batch_id, {
                 'current_page': page_num + 1,
-                'message': f'Processing page {page_num + 1} of {len(images)}...'
+                'message': f'Classifying page {page_num + 1} of {len(images)}...'
             })
             
-            buckslip_path = os.path.join(image_dir, f'page_{page_num + 1}_buckslip.png')
-            images[page_num].save(buckslip_path, 'PNG')
-            buckslip_text = self.ocr.extract_text(buckslip_path)
+            temp_path = os.path.join(image_dir, f'page_{page_num + 1}_temp.png')
+            image.save(temp_path, 'PNG')
+            raw_text = self.ocr.extract_text(temp_path)
             
-            check_path = None
-            check_text = ""
+            image_type = self.ocr.detect_image_type(raw_text)
             
-            if page_num + 1 < len(images):
-                check_path = os.path.join(image_dir, f'page_{page_num + 2}_check.png')
-                images[page_num + 1].save(check_path, 'PNG')
-                check_text = self.ocr.extract_text(check_path)
+            classified_pages.append({
+                'page_num': page_num + 1,
+                'type': image_type,
+                'image': image,
+                'temp_path': temp_path,
+                'raw_text': raw_text
+            })
+        
+        update_status(batch_id, {
+            'message': 'Pairing checks with buck slips...'
+        })
+        
+        check_count = 0
+        i = 0
+        while i < len(classified_pages):
+            page_info = classified_pages[i]
             
-            buckslip_data = self.ocr.parse_check_data(buckslip_text, is_buckslip=True)
-            check_data = self.ocr.parse_check_data(check_text, is_buckslip=False)
+            if page_info['type'] == 'check':
+                check_page = page_info
+                buckslip_page = None
+                
+                for j in range(i + 1, len(classified_pages)):
+                    if classified_pages[j]['type'] == 'buckslip':
+                        buckslip_page = classified_pages[j]
+                        i = j
+                        break
+                
+                check_path = os.path.join(image_dir, f'page_{check_page["page_num"]}_check.png')
+                os.rename(check_page['temp_path'], check_path)
+                check_text = check_page['raw_text']
+                check_data = self.ocr.parse_check_data(check_text, is_buckslip=False)
+                
+                buckslip_path = None
+                buckslip_text = ""
+                buckslip_data = {}
+                
+                if buckslip_page:
+                    buckslip_path = os.path.join(image_dir, f'page_{buckslip_page["page_num"]}_buckslip.png')
+                    os.rename(buckslip_page['temp_path'], buckslip_path)
+                    buckslip_text = buckslip_page['raw_text']
+                    buckslip_data = self.ocr.parse_check_data(buckslip_text, is_buckslip=True)
+                
+                check = Check()
+                check.batch_id = batch_id
+                check.page_number = check_page['page_num']
+                check.amount = check_data.get('amount')
+                check.check_date = check_data.get('check_date')
+                check.check_number = check_data.get('check_number')
+                check.name = buckslip_data.get('name') if buckslip_data else check_data.get('name')
+                check.address_line1 = buckslip_data.get('address_line1') if buckslip_data else check_data.get('address_line1')
+                check.address_line2 = buckslip_data.get('address_line2') if buckslip_data else check_data.get('address_line2')
+                check.city = buckslip_data.get('city') if buckslip_data else check_data.get('city')
+                check.state = buckslip_data.get('state') if buckslip_data else check_data.get('state')
+                check.zip_code = buckslip_data.get('zip_code') if buckslip_data else check_data.get('zip_code')
+                check.is_money_order = check_data.get('is_money_order', False)
+                check.needs_review = True
+                check.raw_ocr_text = f"CHECK (page {check_page['page_num']}):\n{check_text}\n\nBUCKSLIP (page {buckslip_page['page_num'] if buckslip_page else 'N/A'}):\n{buckslip_text}"
+                check.check_image_path = check_path
+                check.buckslip_image_path = buckslip_path
+                
+                db.session.add(check)
+                db.session.commit()
+                
+                check_count += 1
+                update_status(batch_id, {'checks_found': check_count})
             
-            check = Check()
-            check.batch_id = batch_id
-            check.page_number = page_num + 1
-            check.amount = check_data.get('amount') or buckslip_data.get('amount')
-            check.check_date = check_data.get('check_date') or buckslip_data.get('check_date')
-            check.check_number = check_data.get('check_number') or buckslip_data.get('check_number')
-            check.name = buckslip_data.get('name')
-            check.address_line1 = buckslip_data.get('address_line1')
-            check.address_line2 = buckslip_data.get('address_line2')
-            check.city = buckslip_data.get('city')
-            check.state = buckslip_data.get('state')
-            check.zip_code = buckslip_data.get('zip_code')
-            check.is_money_order = check_data.get('is_money_order', False)
-            check.needs_review = True
-            check.raw_ocr_text = f"BUCKSLIP:\n{buckslip_text}\n\nCHECK:\n{check_text}"
-            check.buckslip_image_path = buckslip_path
-            check.check_image_path = check_path
-            
-            db.session.add(check)
-            db.session.commit()
-            
-            check_count += 1
-            update_status(batch_id, {'checks_found': check_count})
-            
-            page_num += 2
+            i += 1
     
     def _process_mail_batch(self, batch_id, images, image_dir):
         check_count = 0
