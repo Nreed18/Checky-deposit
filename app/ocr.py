@@ -249,7 +249,13 @@ class OCREngine:
 
         # Metadata keywords to exclude from name/address extraction
         metadata_exclusions = ['batch', 'report', 'detail', 'lockbox', 'transaction',
-                               'deposit', 'sequence', 'site code', 'appeal']
+                               'deposit', 'sequence', 'site code', 'appeal', 'page', ' of ']
+
+        # Street suffixes that indicate an address, not a name
+        street_suffixes = ['street', 'st', 'road', 'rd', 'avenue', 'ave', 'boulevard', 'blvd',
+                          'drive', 'dr', 'lane', 'ln', 'court', 'ct', 'circle', 'cir',
+                          'way', 'place', 'pl', 'terrace', 'ter', 'po box', 'p.o. box',
+                          'box', 'suite', 'ste', 'apartment', 'apt', 'unit']
 
         name_found = False
         address_started = False
@@ -263,46 +269,72 @@ class OCREngine:
 
             line_clean = re.sub(r'[^a-zA-Z\s\.,\-\']', '', line).strip()
 
-            # Name extraction - improved to avoid metadata
+            # Name extraction - improved to avoid street addresses
             if not name_found and len(line_clean) > 3:
                 words = line_clean.split()
                 if 2 <= len(words) <= 5:
                     # Check if all words start with uppercase (typical name format)
                     if all(word[0].isupper() for word in words if word):
-                        # Additional validation: avoid generic terms
-                        generic_terms = ['dear', 'thank', 'please', 'enclosed', 'family', 'radio']
-                        if not any(term in line_lower for term in generic_terms):
+                        # Exclude street addresses (lines containing street suffixes)
+                        has_street_suffix = any(suffix in line_lower for suffix in street_suffixes)
+                        # Exclude generic terms
+                        generic_terms = ['dear', 'thank', 'please', 'enclosed']
+                        has_generic = any(term in line_lower for term in generic_terms)
+
+                        if not has_street_suffix and not has_generic:
                             data['name'] = line_clean
                             name_found = True
                             continue
 
-            # Address extraction - improved to avoid metadata
+            # Address extraction - look for street address with number
             if name_found and not address_started:
-                # Look for street address pattern (number followed by street name)
-                # Exclude patterns like "Lockbox #: 305112"
-                if re.search(r'\d+\s+[A-Z]', line) and not re.search(r'#\s*:', line):
-                    # Verify it looks like a street address
-                    if not re.search(r'(lockbox|transaction|batch|sequence)', line, re.IGNORECASE):
+                # Street address pattern: number followed by street name with suffix
+                if re.search(r'\d+\s+[A-Za-z]', line):
+                    # Must have a street suffix to be considered an address
+                    has_street_suffix = any(suffix in line_lower for suffix in street_suffixes)
+                    # Exclude metadata patterns
+                    has_metadata = re.search(r'(#\s*:|lockbox|transaction|batch|sequence|page\s+\d)', line, re.IGNORECASE)
+
+                    if has_street_suffix and not has_metadata:
                         data['address_line1'] = line
                         address_started = True
                         continue
 
+            # City, State, ZIP extraction - look for pattern in current line
             if address_started and not data['city']:
-                city_state_zip = re.match(r'([A-Za-z\s]+),?\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)', line)
+                # Try to match "City, ST 12345" or "City ST 12345"
+                city_state_zip = re.search(r'([A-Za-z\s]+),?\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)', line)
                 if city_state_zip:
                     data['city'] = city_state_zip.group(1).strip()
                     data['state'] = city_state_zip.group(2)
                     data['zip_code'] = city_state_zip.group(3)
-                elif not data['address_line2']:
-                    data['address_line2'] = line
+                # Skip page numbers and other metadata for address_line2
+                elif not re.search(r'page\s+\d+|of\s+\d+', line, re.IGNORECASE):
+                    if not data['address_line2']:
+                        data['address_line2'] = line
 
-        zip_match = re.search(r'\b(\d{5}(?:-\d{4})?)\b', raw_text)
-        if zip_match and not data['zip_code']:
-            data['zip_code'] = zip_match.group(1)
+        # Extract city/state/zip from anywhere in the text if not found yet
+        if not data['city'] or not data['state'] or not data['zip_code']:
+            # Look for city, state, zip pattern anywhere
+            city_state_zip_match = re.search(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)', raw_text)
+            if city_state_zip_match:
+                if not data['city']:
+                    data['city'] = city_state_zip_match.group(1).strip()
+                if not data['state']:
+                    data['state'] = city_state_zip_match.group(2)
+                if not data['zip_code']:
+                    data['zip_code'] = city_state_zip_match.group(3)
 
-        state_match = re.search(r'\b([A-Z]{2})\s+\d{5}', raw_text)
-        if state_match and not data['state']:
-            data['state'] = state_match.group(1)
+        # Fallback: extract zip and state separately if still not found
+        if not data['zip_code']:
+            zip_match = re.search(r'\b(\d{5}(?:-\d{4})?)\b', raw_text)
+            if zip_match:
+                data['zip_code'] = zip_match.group(1)
+
+        if not data['state']:
+            state_match = re.search(r'\b([A-Z]{2})\s+\d{5}', raw_text)
+            if state_match:
+                data['state'] = state_match.group(1)
 
         return data
     
