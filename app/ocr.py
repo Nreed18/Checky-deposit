@@ -267,7 +267,8 @@ class OCREngine:
         # Organization keywords that indicate this is NOT a person's name
         organization_keywords = ['family', 'radio', 'church', 'ministry', 'foundation',
                                 'organization', 'charity', 'inc', 'llc', 'corp', 'company',
-                                'association', 'society', 'trust', 'fund']
+                                'association', 'society', 'trust', 'fund', 'bank', 'fargo',
+                                'wells', 'union', 'credit']
 
         name_found = False
         address_started = False
@@ -292,8 +293,8 @@ class OCREngine:
                         # Exclude generic terms
                         generic_terms = ['dear', 'thank', 'please', 'enclosed']
                         has_generic = any(term in line_lower for term in generic_terms)
-                        # Exclude organization names (but only if 'family' or 'radio' alone)
-                        has_org_keyword = any(org in line_lower.split() for org in ['family', 'radio', 'church', 'ministry'])
+                        # Exclude organization names - use FULL list
+                        has_org_keyword = any(org in line_lower.split() for org in organization_keywords)
 
                         if not has_street_suffix and not has_generic and not has_org_keyword:
                             # Check if this line or next few lines have an address
@@ -324,7 +325,14 @@ class OCREngine:
                     has_metadata = re.search(r'(#\s*:|lockbox|transaction|batch|sequence|page\s+\d)', line, re.IGNORECASE)
 
                     if has_street_suffix and not has_metadata:
-                        data['address_line1'] = line
+                        # Clean address: extract only the street part, remove trailing numbers/codes
+                        # Pattern: number + street name + suffix (stop at extra numbers or multiple digits)
+                        addr_match = re.match(r'(\d+\s+[A-Za-z\s\.]+?(?:' + '|'.join(street_suffixes) + r')\.?)\s*(?:\d|$)', line, re.IGNORECASE)
+                        if addr_match:
+                            data['address_line1'] = addr_match.group(1).strip()
+                        else:
+                            # Fallback: just use the line as is
+                            data['address_line1'] = line
                         address_started = True
                         continue
 
