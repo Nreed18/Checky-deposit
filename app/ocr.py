@@ -264,22 +264,7 @@ class OCREngine:
 
         name_found = False
         address_started = False
-        potential_names = []
 
-        # First pass: find all potential street addresses
-        address_lines = []
-        for i, line in enumerate(lines):
-            line_lower = line.lower()
-            # Skip metadata
-            if any(keyword in line_lower for keyword in metadata_exclusions):
-                continue
-            # Look for lines with street suffixes (potential addresses)
-            if re.search(r'\d+\s+[A-Za-z]', line):
-                has_street_suffix = any(suffix in line_lower for suffix in street_suffixes)
-                if has_street_suffix:
-                    address_lines.append(i)
-
-        # Second pass: find name (should be the line immediately before an address)
         for i, line in enumerate(lines):
             line_lower = line.lower()
 
@@ -289,34 +274,41 @@ class OCREngine:
 
             line_clean = re.sub(r'[^a-zA-Z\s\.,\-\']', '', line).strip()
 
-            # Name extraction - look for names adjacent to addresses
+            # Name extraction - prioritize names that appear before addresses
             if not name_found and len(line_clean) > 3:
                 words = line_clean.split()
                 if 2 <= len(words) <= 5:
                     # Check if all words start with uppercase (typical name format)
                     if all(word[0].isupper() for word in words if word):
-                        # Exclude street addresses (lines containing street suffixes)
+                        # Exclude street addresses
                         has_street_suffix = any(suffix in line_lower for suffix in street_suffixes)
                         # Exclude generic terms
                         generic_terms = ['dear', 'thank', 'please', 'enclosed']
                         has_generic = any(term in line_lower for term in generic_terms)
-                        # Exclude organization names
-                        has_org_keyword = any(org in line_lower for org in organization_keywords)
+                        # Exclude organization names (but only if 'family' or 'radio' alone)
+                        has_org_keyword = any(org in line_lower.split() for org in ['family', 'radio', 'church', 'ministry'])
 
                         if not has_street_suffix and not has_generic and not has_org_keyword:
-                            # Check if next line is an address
-                            is_before_address = (i + 1) in address_lines
+                            # Check if this line or next few lines have an address
+                            is_before_address = False
+                            for j in range(i + 1, min(i + 4, len(lines))):
+                                next_line = lines[j].lower()
+                                # Check if next line looks like an address
+                                if re.search(r'\d+\s+[A-Za-z]', lines[j]) and any(suffix in next_line for suffix in street_suffixes):
+                                    is_before_address = True
+                                    break
+
                             if is_before_address:
-                                # This is likely a donor name (appears right before address)
+                                # This is likely a donor name (appears before address)
                                 data['name'] = line_clean
                                 name_found = True
                                 continue
-                            else:
-                                # Store as potential name if we don't find a better one
-                                potential_names.append(line_clean)
+                            elif not data['name']:
+                                # Store as potential name even if not before address
+                                data['name'] = line_clean
 
             # Address extraction - look for street address with number
-            if name_found and not address_started:
+            if not address_started:
                 # Street address pattern: number followed by street name with suffix
                 if re.search(r'\d+\s+[A-Za-z]', line):
                     # Must have a street suffix to be considered an address
@@ -341,10 +333,6 @@ class OCREngine:
                 elif not re.search(r'page\s+\d+|of\s+\d+', line, re.IGNORECASE):
                     if not data['address_line2']:
                         data['address_line2'] = line
-
-        # Fallback: if no name found adjacent to address, use first potential name
-        if not name_found and potential_names:
-            data['name'] = potential_names[0]
 
         # Extract city/state/zip from anywhere in the text if not found yet
         if not data['city'] or not data['state'] or not data['zip_code']:
