@@ -26,11 +26,31 @@ def create_app():
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     
     db.init_app(app)
-    
+
     with app.app_context():
         from app import models
         db.create_all()
-    
+
+        # Auto-migrate: Add new columns if they don't exist
+        try:
+            from sqlalchemy import text
+            with db.engine.connect() as conn:
+                # Add check_ocr_text column
+                try:
+                    conn.execute(text("ALTER TABLE checks ADD COLUMN IF NOT EXISTS check_ocr_text TEXT"))
+                    conn.commit()
+                except Exception:
+                    pass  # Column already exists
+
+                # Add buckslip_ocr_text column
+                try:
+                    conn.execute(text("ALTER TABLE checks ADD COLUMN IF NOT EXISTS buckslip_ocr_text TEXT"))
+                    conn.commit()
+                except Exception:
+                    pass  # Column already exists
+        except Exception as e:
+            print(f"Note: Database migration check: {e}")
+
     from app.routes import main_bp
     app.register_blueprint(main_bp)
     
