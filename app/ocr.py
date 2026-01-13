@@ -265,10 +265,12 @@ class OCREngine:
                           'box', 'suite', 'ste', 'apartment', 'apt', 'unit']
 
         # Organization keywords that indicate this is NOT a person's name
-        organization_keywords = ['family', 'radio', 'church', 'ministry', 'foundation',
+        # NOTE: 'trust', 'fund', 'family', 'radio' are NOT included because:
+        # - 'trust'/'fund' can be legitimate donor names (e.g., "John Smith Family Trust")
+        # - 'family'/'radio' are handled separately as the phrase "Family Radio" (recipient org)
+        organization_keywords = ['church', 'ministry', 'foundation',
                                 'organization', 'charity', 'inc', 'llc', 'corp', 'company',
-                                'association', 'society', 'trust', 'fund', 'bank', 'fargo',
-                                'wells', 'union', 'credit']
+                                'association', 'society', 'bank', 'fargo', 'wells', 'union', 'credit']
 
         name_found = False
         address_started = False
@@ -285,18 +287,52 @@ class OCREngine:
             # Name extraction - prioritize names that appear before addresses
             if not name_found and len(line_clean) > 3:
                 words = line_clean.split()
-                if 2 <= len(words) <= 5:
+
+                # First, check for specific recipient organization "Family Radio" (always filter)
+                # Example: "Carl Augustine Family Radio" -> extract "Carl Augustine"
+                potential_name = None
+                if 'family radio' in line_lower:
+                    # Find where "family radio" starts and extract text before it
+                    family_radio_match = re.search(r'\bfamily\s+radio\b', line_lower)
+                    if family_radio_match:
+                        # Get the text before "family radio"
+                        text_before = line[:family_radio_match.start()].strip()
+                        text_before_clean = re.sub(r'[^a-zA-Z\s\.,\-\']', '', text_before).strip()
+                        if text_before_clean:
+                            name_words = text_before_clean.split()
+                            if 2 <= len(name_words) <= 5:
+                                potential_name = text_before_clean
+
+                # If no "Family Radio" found, check for other organization keywords
+                if not potential_name:
+                    words_lower = line_lower.split()
+                    org_found_at = -1
+                    for idx, word in enumerate(words_lower):
+                        if word in organization_keywords:
+                            org_found_at = idx
+                            break
+
+                    if org_found_at > 0:
+                        # Extract words before organization keyword
+                        name_words = words[:org_found_at]
+                        if 2 <= len(name_words) <= 5:
+                            potential_name = ' '.join(name_words)
+                    elif 2 <= len(words) <= 5:
+                        # No org keywords found, use whole line
+                        potential_name = line_clean
+
+                if potential_name:
                     # Check if all words start with uppercase (typical name format)
-                    if all(word[0].isupper() for word in words if word):
+                    name_words_check = potential_name.split()
+                    if all(word[0].isupper() for word in name_words_check if word):
                         # Exclude street addresses
-                        has_street_suffix = any(suffix in line_lower for suffix in street_suffixes)
+                        potential_lower = potential_name.lower()
+                        has_street_suffix = any(suffix in potential_lower for suffix in street_suffixes)
                         # Exclude generic terms
                         generic_terms = ['dear', 'thank', 'please', 'enclosed']
-                        has_generic = any(term in line_lower for term in generic_terms)
-                        # Exclude organization names - use FULL list
-                        has_org_keyword = any(org in line_lower.split() for org in organization_keywords)
+                        has_generic = any(term in potential_lower for term in generic_terms)
 
-                        if not has_street_suffix and not has_generic and not has_org_keyword:
+                        if not has_street_suffix and not has_generic:
                             # Check if this line or next few lines have an address
                             is_before_address = False
                             for j in range(i + 1, min(i + 4, len(lines))):
@@ -308,12 +344,12 @@ class OCREngine:
 
                             if is_before_address:
                                 # This is likely a donor name (appears before address)
-                                data['name'] = line_clean
+                                data['name'] = potential_name
                                 name_found = True
                                 continue
                             elif not data['name']:
                                 # Store as potential name even if not before address
-                                data['name'] = line_clean
+                                data['name'] = potential_name
 
             # Address extraction - look for street address with number
             if not address_started:
