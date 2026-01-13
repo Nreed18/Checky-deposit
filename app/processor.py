@@ -113,16 +113,17 @@ class CheckProcessor:
             
             temp_path = os.path.join(image_dir, f'page_{page_num + 1}_temp.png')
             image.save(temp_path, 'PNG')
-            raw_text = self.ocr.extract_text(temp_path)
+            ocr_result = self.ocr.extract_text_with_confidence(temp_path)
             
-            image_type = self.ocr.detect_image_type(raw_text)
+            image_type = self.ocr.detect_image_type(ocr_result.text)
             
             classified_pages.append({
                 'page_num': page_num + 1,
                 'type': image_type,
                 'image': image,
                 'temp_path': temp_path,
-                'raw_text': raw_text
+                'raw_text': ocr_result.text,
+                'ocr_result': ocr_result
             })
         
         update_status(batch_id, {
@@ -159,6 +160,17 @@ class CheckProcessor:
                     buckslip_text = buckslip_page['raw_text']
                     buckslip_data = self.ocr.parse_check_data(buckslip_text, is_buckslip=True)
                 
+                check_ocr_result = check_page.get('ocr_result')
+                buckslip_ocr_result = buckslip_page.get('ocr_result') if buckslip_page else None
+                
+                needs_review = True
+                if check_ocr_result:
+                    needs_review = check_ocr_result.needs_verification
+                if buckslip_ocr_result and buckslip_ocr_result.needs_verification:
+                    needs_review = True
+                if not check_data.get('amount') or not check_data.get('check_number'):
+                    needs_review = True
+                
                 check = Check()
                 check.batch_id = batch_id
                 check.page_number = check_page['page_num']
@@ -172,7 +184,7 @@ class CheckProcessor:
                 check.state = buckslip_data.get('state') if buckslip_data else check_data.get('state')
                 check.zip_code = buckslip_data.get('zip_code') if buckslip_data else check_data.get('zip_code')
                 check.is_money_order = check_data.get('is_money_order', False)
-                check.needs_review = True
+                check.needs_review = needs_review
                 check.raw_ocr_text = f"CHECK (page {check_page['page_num']}):\n{check_text}\n\nBUCKSLIP (page {buckslip_page['page_num'] if buckslip_page else 'N/A'}):\n{buckslip_text}"
                 check.check_image_path = check_path
                 check.buckslip_image_path = buckslip_path
@@ -197,8 +209,12 @@ class CheckProcessor:
             check_path = os.path.join(image_dir, f'page_{page_num + 1}_check.png')
             image.save(check_path, 'PNG')
             
-            raw_text = self.ocr.extract_text(check_path)
-            check_data = self.ocr.parse_check_data(raw_text, is_buckslip=False)
+            ocr_result = self.ocr.extract_text_with_confidence(check_path)
+            check_data = self.ocr.parse_check_data(ocr_result.text, is_buckslip=False)
+            
+            needs_review = ocr_result.needs_verification
+            if not check_data.get('amount') or not check_data.get('check_number'):
+                needs_review = True
             
             check = Check()
             check.batch_id = batch_id
@@ -213,8 +229,8 @@ class CheckProcessor:
             check.state = check_data.get('state')
             check.zip_code = check_data.get('zip_code')
             check.is_money_order = check_data.get('is_money_order', False)
-            check.needs_review = True
-            check.raw_ocr_text = raw_text
+            check.needs_review = needs_review
+            check.raw_ocr_text = ocr_result.text
             check.check_image_path = check_path
             check.buckslip_image_path = None
             

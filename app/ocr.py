@@ -2,6 +2,8 @@ import re
 import pytesseract
 from PIL import Image
 from datetime import datetime
+from dataclasses import dataclass, field
+from typing import Optional, Dict, Any, List
 
 try:
     from onnxtr.io import DocumentFile
@@ -10,31 +12,91 @@ try:
 except ImportError:
     ONNXTR_AVAILABLE = False
 
+@dataclass
+class OCRResult:
+    text: str
+    confidence: float = 0.0
+    word_confidences: List[float] = field(default_factory=list)
+    engine: str = 'unknown'
+    needs_verification: bool = False
+
 class OCREngine:
-    def __init__(self, use_onnxtr=True):
+    CONFIDENCE_THRESHOLD = 0.75
+    
+    def __init__(self, use_dual_engine=True):
         self.money_order_keywords = ['money order', 'postal money order', 'usps money order', 'western union']
-        self.use_onnxtr = use_onnxtr and ONNXTR_AVAILABLE
+        self.use_dual_engine = use_dual_engine
         self._predictor = None
+        self._onnxtr_available = ONNXTR_AVAILABLE
     
     def _get_predictor(self):
-        if self._predictor is None and self.use_onnxtr:
+        if self._predictor is None and self._onnxtr_available:
             try:
                 self._predictor = ocr_predictor(pretrained=True)
             except Exception as e:
                 print(f"Failed to initialize OnnxTR predictor: {e}")
-                self.use_onnxtr = False
+                self._onnxtr_available = False
         return self._predictor
     
-    def extract_text(self, image_path):
-        if self.use_onnxtr:
-            try:
-                return self._extract_with_onnxtr(image_path)
-            except Exception as e:
-                print(f"OnnxTR Error, falling back to Tesseract: {e}")
-        
-        return self._extract_with_tesseract(image_path)
+    def extract_text(self, image_path) -> str:
+        result = self.extract_text_with_confidence(image_path)
+        return result.text
     
-    def _extract_with_onnxtr(self, image_path):
+    def extract_text_with_confidence(self, image_path) -> OCRResult:
+        tesseract_result = self._extract_with_tesseract(image_path)
+        
+        if not self.use_dual_engine or not self._onnxtr_available:
+            return tesseract_result
+        
+        try:
+            onnxtr_result = self._extract_with_onnxtr(image_path)
+            
+            if onnxtr_result.confidence >= self.CONFIDENCE_THRESHOLD:
+                return onnxtr_result
+            
+            if tesseract_result.text and onnxtr_result.text:
+                tesseract_parsed = self.parse_check_data(tesseract_result.text)
+                onnxtr_parsed = self.parse_check_data(onnxtr_result.text)
+                
+                disagreements = self._compare_results(tesseract_parsed, onnxtr_parsed)
+                
+                if disagreements:
+                    combined_result = OCRResult(
+                        text=f"PRIMARY (OnnxTR):\n{onnxtr_result.text}\n\nSECONDARY (Tesseract):\n{tesseract_result.text}",
+                        confidence=onnxtr_result.confidence,
+                        engine='dual',
+                        needs_verification=True
+                    )
+                    return combined_result
+            
+            return onnxtr_result if onnxtr_result.confidence > 0.5 else tesseract_result
+            
+        except Exception as e:
+            print(f"OnnxTR Error, using Tesseract result: {e}")
+            return tesseract_result
+    
+    def _compare_results(self, result1: Dict, result2: Dict) -> List[str]:
+        disagreements = []
+        
+        if result1.get('amount') and result2.get('amount'):
+            if abs(float(result1['amount']) - float(result2['amount'])) > 0.01:
+                disagreements.append('amount')
+        
+        if result1.get('check_number') != result2.get('check_number'):
+            if result1.get('check_number') and result2.get('check_number'):
+                disagreements.append('check_number')
+        
+        name1 = (result1.get('name') or '').lower().strip()
+        name2 = (result2.get('name') or '').lower().strip()
+        if name1 and name2 and name1 != name2:
+            from difflib import SequenceMatcher
+            ratio = SequenceMatcher(None, name1, name2).ratio()
+            if ratio < 0.7:
+                disagreements.append('name')
+        
+        return disagreements
+    
+    def _extract_with_onnxtr(self, image_path) -> OCRResult:
         predictor = self._get_predictor()
         if predictor is None:
             raise Exception("OnnxTR predictor not available")
@@ -43,22 +105,41 @@ class OCREngine:
         result = predictor(doc)
         
         text_lines = []
+        all_confidences = []
+        
         for page in result.pages:
             for block in page.blocks:
                 for line in block.lines:
-                    line_text = ' '.join(word.value for word in line.words)
-                    text_lines.append(line_text)
+                    line_words = []
+                    for word in line.words:
+                        line_words.append(word.value)
+                        all_confidences.append(word.confidence)
+                    text_lines.append(' '.join(line_words))
         
-        return '\n'.join(text_lines)
+        avg_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else 0.0
+        
+        return OCRResult(
+            text='\n'.join(text_lines),
+            confidence=avg_confidence,
+            word_confidences=all_confidences,
+            engine='onnxtr',
+            needs_verification=avg_confidence < self.CONFIDENCE_THRESHOLD
+        )
     
-    def _extract_with_tesseract(self, image_path):
+    def _extract_with_tesseract(self, image_path) -> OCRResult:
         try:
             image = Image.open(image_path)
             text = pytesseract.image_to_string(image)
-            return text
+            
+            return OCRResult(
+                text=text,
+                confidence=0.7,
+                engine='tesseract',
+                needs_verification=False
+            )
         except Exception as e:
             print(f"Tesseract OCR Error: {e}")
-            return ""
+            return OCRResult(text='', confidence=0.0, engine='tesseract', needs_verification=True)
     
     def parse_check_data(self, raw_text, is_buckslip=False):
         data = {
