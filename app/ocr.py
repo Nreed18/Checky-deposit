@@ -54,6 +54,8 @@ class OCREngine:
             if onnxtr_result.confidence >= self.CONFIDENCE_THRESHOLD:
                 return onnxtr_result
             
+            # OnnxTR confidence below threshold - use Tesseract as fallback
+            # But first compare results to flag disagreements for manual review
             if tesseract_result.text and onnxtr_result.text:
                 tesseract_parsed = self.parse_check_data(tesseract_result.text)
                 onnxtr_parsed = self.parse_check_data(onnxtr_result.text)
@@ -61,15 +63,17 @@ class OCREngine:
                 disagreements = self._compare_results(tesseract_parsed, onnxtr_parsed)
                 
                 if disagreements:
-                    combined_result = OCRResult(
-                        text=f"PRIMARY (OnnxTR):\n{onnxtr_result.text}\n\nSECONDARY (Tesseract):\n{tesseract_result.text}",
-                        confidence=onnxtr_result.confidence,
+                    # Engines disagree - return Tesseract with both texts for review
+                    return OCRResult(
+                        text=f"PRIMARY (Tesseract):\n{tesseract_result.text}\n\nSECONDARY (OnnxTR, low confidence):\n{onnxtr_result.text}",
+                        confidence=tesseract_result.confidence,
                         engine='dual',
                         needs_verification=True
                     )
-                    return combined_result
             
-            return onnxtr_result if onnxtr_result.confidence > 0.5 else tesseract_result
+            # OnnxTR confidence < threshold, fall back to Tesseract
+            tesseract_result.needs_verification = True  # Flag since we had to fallback
+            return tesseract_result
             
         except Exception as e:
             print(f"OnnxTR Error, using Tesseract result: {e}")
