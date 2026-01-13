@@ -168,6 +168,19 @@ def submit_batch(batch_id):
     
     checks = Check.query.filter_by(batch_id=batch_id).all()
     
+    if batch.expected_amount:
+        reviewed_total = sum(float(c.amount or 0) for c in checks)
+        expected = float(batch.expected_amount)
+        if abs(reviewed_total - expected) > 0.01:
+            data = request.get_json() or {}
+            if not data.get('force_submit'):
+                return jsonify({
+                    'error': 'Total mismatch',
+                    'reviewed_total': reviewed_total,
+                    'expected_amount': expected,
+                    'requires_confirmation': True
+                }), 400
+    
     success_count = 0
     errors = []
     

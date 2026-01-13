@@ -174,8 +174,8 @@ async function selectContact(contactId, contactName) {
     }
 }
 
-async function submitBatch() {
-    if (expectedAmount > 0) {
+async function submitBatch(forceSubmit = false) {
+    if (expectedAmount > 0 && !forceSubmit) {
         let total = 0;
         document.querySelectorAll('[data-field="amount"]').forEach(field => {
             total += parseFloat(field.value) || 0;
@@ -187,6 +187,7 @@ async function submitBatch() {
             if (!confirm(confirmMsg)) {
                 return;
             }
+            return submitBatch(true);
         }
     }
     
@@ -196,7 +197,9 @@ async function submitBatch() {
 
     try {
         const response = await fetch(`/api/submit/${batchId}`, {
-            method: 'POST'
+            method: 'POST',
+            headers: forceSubmit ? { 'Content-Type': 'application/json' } : {},
+            body: forceSubmit ? JSON.stringify({ force_submit: true }) : undefined
         });
 
         const data = await response.json();

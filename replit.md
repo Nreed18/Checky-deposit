@@ -64,5 +64,8 @@ The application runs on port 5000. Access the web interface to upload PDFs and p
 
 - Initial build (January 2026)
 - Implemented dual image display for bank batches
-- Added buck slip/check pairing logic
-- Integrated Tesseract OCR for text extraction
+- Added buck slip/check pairing logic with two-pass processing (classify pages first, then pair checks with following buckslips)
+- Integrated OnnxTR (docTR CPU) as primary OCR engine with Tesseract fallback for improved accuracy
+- Added expected batch total feature for validation during review
+- Review page now shows "Reviewed Total vs Expected" with live updates and mismatch warnings
+- Submit confirmation dialog when totals don't match
