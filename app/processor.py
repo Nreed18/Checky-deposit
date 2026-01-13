@@ -189,6 +189,8 @@ class CheckProcessor:
                 check.is_money_order = check_data.get('is_money_order', False)
                 check.needs_review = needs_review
                 check.raw_ocr_text = f"CHECK (page {check_page['page_num']}):\n{check_text}\n\nBUCKSLIP (page {buckslip_page['page_num'] if buckslip_page else 'N/A'}):\n{buckslip_text}"
+                check.check_ocr_text = check_text  # Store separate check OCR
+                check.buckslip_ocr_text = buckslip_text  # Store separate buckslip OCR
                 check.check_image_path = check_path
                 check.buckslip_image_path = buckslip_path
                 
@@ -234,6 +236,8 @@ class CheckProcessor:
             check.is_money_order = check_data.get('is_money_order', False)
             check.needs_review = needs_review
             check.raw_ocr_text = ocr_result.text
+            check.check_ocr_text = ocr_result.text  # Store check OCR (mail batches only have check)
+            check.buckslip_ocr_text = None  # No buckslip for mail batches
             check.check_image_path = check_path
             check.buckslip_image_path = None
             

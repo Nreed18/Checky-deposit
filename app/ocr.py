@@ -308,7 +308,9 @@ class OCREngine:
                     words_lower = line_lower.split()
                     org_found_at = -1
                     for idx, word in enumerate(words_lower):
-                        if word in organization_keywords:
+                        # Strip punctuation from word before checking
+                        word_clean = word.strip('.,;:!?()[]{}"\'-')
+                        if word_clean in organization_keywords:
                             org_found_at = idx
                             break
 
@@ -322,6 +324,7 @@ class OCREngine:
                         potential_name = line_clean
 
                 if potential_name:
+                    print(f"  Potential name found: '{potential_name}' from line: '{line[:50]}'")
                     # Check if all words start with uppercase (typical name format)
                     name_words_check = potential_name.split()
                     if all(word[0].isupper() for word in name_words_check if word):
@@ -340,16 +343,23 @@ class OCREngine:
                                 # Check if next line looks like an address
                                 if re.search(r'\d+\s+[A-Za-z]', lines[j]) and any(suffix in next_line for suffix in street_suffixes):
                                     is_before_address = True
+                                    print(f"    → Found address on next line: '{lines[j][:50]}'")
                                     break
 
                             if is_before_address:
                                 # This is likely a donor name (appears before address)
+                                print(f"    ✓ Accepted as donor name (before address)")
                                 data['name'] = potential_name
                                 name_found = True
                                 continue
                             elif not data['name']:
                                 # Store as potential name even if not before address
+                                print(f"    ~ Stored as fallback name")
                                 data['name'] = potential_name
+                        else:
+                            print(f"    ✗ Rejected: has_street_suffix={has_street_suffix}, has_generic={has_generic}")
+                    else:
+                        print(f"    ✗ Rejected: not all uppercase words")
 
             # Address extraction - look for street address with number
             if not address_started:

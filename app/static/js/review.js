@@ -14,8 +14,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.getElementById('submitBtn').addEventListener('click', submitBatch);
-    
+
     updateTotalAmount();
+
+    // Initialize OCR text selection for click-to-fill
+    initializeOCRClickToFill();
 });
 
 async function handleFieldChange(e) {
@@ -228,3 +231,61 @@ document.addEventListener('keydown', function(e) {
         closeContactModal();
     }
 });
+
+// OCR Click-to-Fill Functionality
+let activeField = null;
+
+function initializeOCRClickToFill() {
+    // Track which field is currently active
+    document.querySelectorAll('.editable-field').forEach(field => {
+        field.addEventListener('focus', function() {
+            // Clear previous active field
+            document.querySelectorAll('.editable-field').forEach(f => {
+                f.classList.remove('active-field-indicator');
+            });
+
+            // Set this field as active
+            this.classList.add('active-field-indicator');
+            activeField = this;
+        });
+    });
+
+    // Handle text selection and click in OCR text areas
+    document.querySelectorAll('.ocr-text-clickable').forEach(ocrText => {
+        // Allow text selection
+        ocrText.addEventListener('mouseup', function(e) {
+            const selection = window.getSelection();
+            const selectedText = selection.toString().trim();
+
+            if (selectedText && activeField) {
+                // Fill the active field with selected text
+                activeField.value = selectedText;
+
+                // Trigger change event to save
+                activeField.dispatchEvent(new Event('change', { bubbles: true }));
+
+                // Visual feedback
+                activeField.classList.add('modified');
+                setTimeout(() => {
+                    activeField.classList.remove('modified');
+                }, 500);
+
+                // Clear selection
+                selection.removeAllRanges();
+            }
+        });
+
+        // Double-click to select word
+        ocrText.addEventListener('dblclick', function(e) {
+            e.preventDefault();
+            const selection = window.getSelection();
+            const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+            if (range) {
+                selection.removeAllRanges();
+                selection.addRange(range);
+                selection.modify('move', 'backward', 'word');
+                selection.modify('extend', 'forward', 'word');
+            }
+        });
+    });
+}
