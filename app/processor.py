@@ -8,6 +8,17 @@ from app.ocr import OCREngine
 from app.hubspot import HubSpotClient
 
 processing_status = {}
+status_lock = threading.Lock()
+
+def update_status(batch_id, updates):
+    with status_lock:
+        if batch_id not in processing_status:
+            processing_status[batch_id] = {}
+        processing_status[batch_id].update(updates)
+
+def get_status(batch_id):
+    with status_lock:
+        return dict(processing_status.get(batch_id, {'status': 'unknown'}))
 
 class CheckProcessor:
     def __init__(self, app):
@@ -26,23 +37,22 @@ class CheckProcessor:
     def _process_in_background(self, batch_id, pdf_path, appeal_code):
         with self.app.app_context():
             try:
-                processing_status[batch_id] = {
+                update_status(batch_id, {
                     'status': 'converting',
                     'current_page': 0,
                     'total_pages': 0,
                     'checks_found': 0,
                     'message': 'Converting PDF to images...'
-                }
+                })
                 
                 images = convert_from_path(pdf_path, dpi=300)
                 total_pages = len(images)
                 
-                processing_status[batch_id]['total_pages'] = total_pages
-                processing_status[batch_id]['status'] = 'processing'
+                update_status(batch_id, {'total_pages': total_pages, 'status': 'processing'})
                 
                 batch = db.session.get(Batch, batch_id)
                 if not batch:
-                    processing_status[batch_id] = {'status': 'error', 'message': 'Batch not found'}
+                    update_status(batch_id, {'status': 'error', 'message': 'Batch not found'})
                     return
                 
                 image_dir = os.path.join(self.app.config['UPLOAD_FOLDER'], f'batch_{batch_id}')
@@ -63,26 +73,26 @@ class CheckProcessor:
                     batch.total_checks = Check.query.filter_by(batch_id=batch_id).count()
                     db.session.commit()
                     
-                    processing_status[batch_id] = {
+                    update_status(batch_id, {
                         'status': 'complete',
                         'total_pages': total_pages,
                         'checks_found': batch.total_checks,
                         'message': 'Processing complete!'
-                    }
+                    })
                 else:
-                    processing_status[batch_id] = {
+                    update_status(batch_id, {
                         'status': 'error',
                         'total_pages': total_pages,
                         'checks_found': 0,
                         'message': 'Batch not found after processing'
-                    }
+                    })
                 
             except Exception as e:
                 print(f"Processing error: {e}")
-                processing_status[batch_id] = {
+                update_status(batch_id, {
                     'status': 'error',
                     'message': str(e)
-                }
+                })
                 
                 batch = db.session.get(Batch, batch_id)
                 if batch:
@@ -94,8 +104,10 @@ class CheckProcessor:
         check_count = 0
         
         while page_num < len(images):
-            processing_status[batch_id]['current_page'] = page_num + 1
-            processing_status[batch_id]['message'] = f'Processing page {page_num + 1} of {len(images)}...'
+            update_status(batch_id, {
+                'current_page': page_num + 1,
+                'message': f'Processing page {page_num + 1} of {len(images)}...'
+            })
             
             buckslip_path = os.path.join(image_dir, f'page_{page_num + 1}_buckslip.png')
             images[page_num].save(buckslip_path, 'PNG')
@@ -134,7 +146,7 @@ class CheckProcessor:
             db.session.commit()
             
             check_count += 1
-            processing_status[batch_id]['checks_found'] = check_count
+            update_status(batch_id, {'checks_found': check_count})
             
             page_num += 2
     
@@ -142,8 +154,10 @@ class CheckProcessor:
         check_count = 0
         
         for page_num, image in enumerate(images):
-            processing_status[batch_id]['current_page'] = page_num + 1
-            processing_status[batch_id]['message'] = f'Processing page {page_num + 1} of {len(images)}...'
+            update_status(batch_id, {
+                'current_page': page_num + 1,
+                'message': f'Processing page {page_num + 1} of {len(images)}...'
+            })
             
             check_path = os.path.join(image_dir, f'page_{page_num + 1}_check.png')
             image.save(check_path, 'PNG')
@@ -173,13 +187,13 @@ class CheckProcessor:
             db.session.commit()
             
             check_count += 1
-            processing_status[batch_id]['checks_found'] = check_count
+            update_status(batch_id, {'checks_found': check_count})
     
     def _match_hubspot_contacts(self, batch_id):
         if not self.hubspot.is_configured():
             return
         
-        processing_status[batch_id]['message'] = 'Matching HubSpot contacts...'
+        update_status(batch_id, {'message': 'Matching HubSpot contacts...'})
         
         checks = Check.query.filter_by(batch_id=batch_id).all()
         
@@ -199,4 +213,4 @@ class CheckProcessor:
         db.session.commit()
 
 def get_processing_status(batch_id):
-    return processing_status.get(batch_id, {'status': 'unknown'})
+    return get_status(batch_id)

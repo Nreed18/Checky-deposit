@@ -35,6 +35,11 @@ def upload():
     if not file.filename or not allowed_file(file.filename):
         return jsonify({'error': 'Only PDF files are allowed'}), 400
     
+    header = file.read(8)
+    file.seek(0)
+    if not header.startswith(b'%PDF-'):
+        return jsonify({'error': 'Invalid PDF file format'}), 400
+    
     filename = secure_filename(file.filename)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     unique_filename = f"{timestamp}_{filename}"
@@ -49,8 +54,7 @@ def upload():
     db.session.add(batch)
     db.session.commit()
     
-    from flask import current_app as app
-    processor = CheckProcessor(app)
+    processor = CheckProcessor(current_app._get_current_object())
     processor.process_batch(batch.id, filepath, appeal_code)
     
     return jsonify({
